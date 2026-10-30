@@ -1,0 +1,22 @@
+# Python bytecode and test/coverage caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and local editor files
+.venv/
+venv/
+env/
+.vscode/
+
+# Local finance data and generated exports
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.csv
+
+# Operating system files
+Thumbs.db
+.DS_Store
