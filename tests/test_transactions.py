@@ -76,7 +76,12 @@ def test_delete_transaction(database_path):
 
 @pytest.mark.parametrize(
     ("amount", "message"),
-    [("not-money", "valid number"), (0, "greater than zero"), (-3, "greater than zero")],
+    [
+        ("not-money", "valid number"),
+        (0, "greater than zero"),
+        (-3, "greater than zero"),
+        ("1e100000", "too large"),
+    ],
 )
 def test_rejects_invalid_amount(database_path, amount, message):
     with pytest.raises(ValueError, match=message):

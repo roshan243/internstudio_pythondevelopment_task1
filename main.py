@@ -1,8 +1,12 @@
 """Command-line interface for the personal finance tracker."""
 
+import argparse
 from datetime import date
+import re
 import sqlite3
+import sys
 from pathlib import Path
+from typing import Optional, Sequence
 
 from database import DEFAULT_DATABASE_PATH, initialize_database
 from export import export_transactions
@@ -14,6 +18,7 @@ from reports import (
 )
 from transactions import (
     CATEGORIES,
+    TRANSACTION_TYPES,
     add_transaction,
     delete_transaction,
     edit_transaction,
@@ -39,8 +44,8 @@ def _read_category() -> str:
     return input("Category: ").strip()
 
 
-def _print_transactions() -> None:
-    transactions = get_transactions()
+def _print_transactions(database_path=DEFAULT_DATABASE_PATH) -> None:
+    transactions = get_transactions(database_path)
     if not transactions:
         print("No transactions have been recorded yet.")
         return
@@ -171,16 +176,165 @@ def _show_menu() -> None:
     )
 
 
-def main() -> None:
-    """Run the interactive menu until the user chooses to exit."""
+def _parse_month(value: str) -> tuple[int, int]:
+    """Parse a YYYY-MM month argument for argparse."""
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", value):
+        raise argparse.ArgumentTypeError("month must use YYYY-MM format")
+    year, month = (int(part) for part in value.split("-"))
+    if year < 1:
+        raise argparse.ArgumentTypeError("year must be greater than zero")
+    return year, month
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser and its supported subcommands."""
+    parser = argparse.ArgumentParser(
+        description="Record and review personal income and expenses."
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    add_parser = subparsers.add_parser("add", help="add an income or expense transaction")
+    add_parser.add_argument(
+        "--type",
+        dest="transaction_type",
+        choices=TRANSACTION_TYPES,
+        help="transaction type (prompts if omitted)",
+    )
+    add_parser.add_argument(
+        "--amount",
+        help="positive transaction amount (prompts if omitted)",
+    )
+    add_parser.add_argument(
+        "--category",
+        help="transaction category (prompts if omitted)",
+    )
+    add_parser.add_argument(
+        "--date",
+        dest="transaction_date",
+        help="transaction date in YYYY-MM-DD format (defaults to today)",
+    )
+    add_parser.add_argument(
+        "--description",
+        help="optional transaction description (defaults to empty)",
+    )
+
+    subparsers.add_parser("list", help="list saved transactions")
+
+    report_parser = subparsers.add_parser(
+        "report", help="display the financial summary and monthly/category reports"
+    )
+    report_parser.add_argument(
+        "--month",
+        type=_parse_month,
+        default=(date.today().year, date.today().month),
+        metavar="YYYY-MM",
+        help="month to report on (defaults to the current month)",
+    )
+
+    export_parser = subparsers.add_parser("export", help="export transactions to CSV")
+    default_csv_path = Path(__file__).resolve().parent / "data" / "transactions.csv"
+    export_parser.add_argument(
+        "--output",
+        type=Path,
+        default=default_csv_path,
+        metavar="PATH",
+        help=f"CSV destination (default: {default_csv_path})",
+    )
+    return parser
+
+
+def _run_add_command(args: argparse.Namespace) -> None:
+    transaction_type = args.transaction_type
+    if transaction_type is None:
+        transaction_type = input("Type (income/expense): ").strip()
+
+    amount = args.amount if args.amount is not None else _read_amount()
+    category = args.category if args.category is not None else _read_category()
+    transaction_date = (
+        args.transaction_date if args.transaction_date is not None else date.today().isoformat()
+    )
+    description = args.description or ""
+
+    transaction_id = add_transaction(
+        transaction_type=transaction_type,
+        amount=amount,
+        category=category,
+        transaction_date=transaction_date,
+        description=description,
+        database_path=DEFAULT_DATABASE_PATH,
+    )
+    print(f"Success: {transaction_type.title()} transaction #{transaction_id} added.")
+
+
+def _run_report_command(month: tuple[int, int]) -> None:
+    year, month_number = month
+    summary = get_financial_summary(DEFAULT_DATABASE_PATH)
+    monthly = get_monthly_summary(year, month_number, DEFAULT_DATABASE_PATH)
+    categories = get_category_expenses(
+        DEFAULT_DATABASE_PATH, year=year, month=month_number
+    )
+
+    print("\nFinancial Summary")
+    print(f"Total income:   ${summary['total_income']:.2f}")
+    print(f"Total expenses: ${summary['total_expenses']:.2f}")
+    print(f"Current balance: ${summary['balance']:.2f}")
+
+    print(f"\nMonthly Summary: {year:04d}-{month_number:02d}")
+    print(f"Income:   ${monthly['total_income']:.2f}")
+    print(f"Expenses: ${monthly['total_expenses']:.2f}")
+    print(f"Balance:  ${monthly['balance']:.2f}")
+
+    print(f"\nExpense Categories for {year:04d}-{month_number:02d}")
+    if not categories:
+        print("No expenses recorded for this month.")
+        return
+    for item in categories:
+        print(f"{item['category']:<18} ${item['total']:.2f}")
+    highest = categories[0]
+    print(
+        f"Highest expense category: {highest['category']} "
+        f"(${highest['total']:.2f})"
+    )
+
+
+def _run_command(args: argparse.Namespace) -> int:
+    if args.command == "add":
+        _run_add_command(args)
+    elif args.command == "list":
+        _print_transactions(DEFAULT_DATABASE_PATH)
+    elif args.command == "report":
+        _run_report_command(args.month)
+    elif args.command == "export":
+        count = export_transactions(args.output, DEFAULT_DATABASE_PATH)
+        print(f"Success: exported {count} transaction(s) to {args.output}.")
+    return 0
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Run a subcommand, or preserve the interactive menu when no args are given."""
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments:
+        parser = _build_parser()
+        args = parser.parse_args(arguments)
+        try:
+            return _run_command(args)
+        except ValueError as error:
+            parser.error(str(error))
+        except sqlite3.Error as error:
+            print(f"Database error: {error}", file=sys.stderr)
+            return 1
+        except OSError as error:
+            print(f"File or directory error: {error}", file=sys.stderr)
+            return 1
+
     try:
         initialize_database()
     except sqlite3.Error as error:
         print(f"Database error: {error}")
-        return
+        return 1
     except OSError as error:
         print(f"File or directory error: {error}")
-        return
+        return 1
 
     actions = {
         "1": lambda: _add_transaction("income"),
@@ -211,7 +365,8 @@ def main() -> None:
             print(f"Database error: {error}")
         except OSError as error:
             print(f"File or directory error: {error}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

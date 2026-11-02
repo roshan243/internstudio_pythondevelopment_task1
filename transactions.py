@@ -30,7 +30,10 @@ def validate_amount(amount: Union[str, int, float, Decimal]) -> int:
     if not value.is_finite() or value <= 0:
         raise ValueError("Amount must be greater than zero.")
 
-    cents = (value * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    try:
+        cents = (value * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    except InvalidOperation:
+        raise ValueError("Amount is too large.") from None
     if cents <= 0:
         raise ValueError("Amount must be at least 0.01.")
     if cents > 9_000_000_000_000_000:

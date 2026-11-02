@@ -88,13 +88,46 @@ py -m pip install -r requirements.txt
 
 ## How to Run
 
-Start the application from the project folder:
+From the project folder, the application supports subcommands. `add` prompts for any details you omit:
+
+```bat
+py main.py add
+```
+
+You can also provide the transaction details as options:
+
+```bat
+py main.py add --type expense --amount 12.50 --category Food --date 2026-10-30 --description "Lunch"
+py main.py add --type income --amount 2500 --category Salary --description "Monthly pay"
+```
+
+List saved transactions:
+
+```bat
+py main.py list
+```
+
+Display the overall financial summary, monthly report, and that month's category-wise expenses. By default, the report uses the current month; pass `--month YYYY-MM` to choose another:
+
+```bat
+py main.py report
+py main.py report --month 2026-10
+```
+
+Export transactions to the default `data/transactions.csv` file, or choose a destination:
+
+```bat
+py main.py export
+py main.py export --output exports/transactions.csv
+```
+
+Running without a subcommand still opens the original interactive menu:
 
 ```bat
 py main.py
 ```
 
-Choose a numbered menu option and follow the prompts. Dates use `YYYY-MM-DD`; pressing Enter at the date prompt for a new transaction uses today's date. Category names are shown when adding a transaction.
+In the interactive menu, choose a numbered option and follow the prompts. Dates use `YYYY-MM-DD`; pressing Enter at the date prompt for a new transaction uses today's date. Category names are shown when adding a transaction.
 
 ### Example Program Output
 
@@ -129,7 +162,7 @@ Install dependencies as described above, then run all tests from the project fol
 py -m pytest
 ```
 
-Tests create SQLite databases under pytest's temporary directory. They do not read or modify `data/finance.db`.
+Tests create SQLite databases under pytest's temporary directory. They do not read or modify `data/finance.db`. The CLI tests cover `add`, `list`, `report`, and `export`, as well as invalid input and the original no-argument menu.
 
 ## How the Project Works
 
